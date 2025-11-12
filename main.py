@@ -10,6 +10,9 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.auth.transport.requests import Request
 import json
+import tkinter as tk
+from tkinter import messagebox, ttk
+from tkcalendar import DateEntry
 
 # Terminal color helpers
 def color(text, code):
@@ -91,30 +94,19 @@ def get_google_credentials():
     return creds
 
 
-def clear_events():
+def clear_events_gui(start_date, end_date):
     calendar_id = get_calendar_id()
     if not calendar_id:
-        print('Не знайдено GOOGLE_CALENDAR_ID у .env')
+        messagebox.showerror("Error", 'Не знайдено GOOGLE_CALENDAR_ID у .env')
         return
     creds = get_google_credentials()
     service = build('calendar', 'v3', credentials=creds)
-    while True:
-        start_date_str = input(cyan("Введіть дату початку (ддммрррр): "))
-        end_date_str = input(cyan("Введіть дату кінця (ддммрррр): "))
-        try:
-            start_date = datetime.strptime(start_date_str, "%d%m%Y")
-            end_date = datetime.strptime(end_date_str, "%d%m%Y")
-            break
-        except ValueError:
-            print(red("Невірний формат дати! Використовуйте ддммрррр"))
     # Make end_date inclusive
     end_date = end_date.replace(hour=23, minute=59, second=59)
     tz = pytz.timezone(TIMEZONE)
     time_min = tz.localize(start_date).isoformat()
     time_max = tz.localize(end_date).isoformat()
     try:
-        print(cyan(f"DEBUG: time_min = {time_min}"))
-        print(cyan(f"DEBUG: time_max = {time_max}"))
         deleted_count = 0
         page_token = None
         all_events = []
@@ -132,18 +124,15 @@ def clear_events():
             if not page_token:
                 break
         if not all_events:
-            print(yellow("Подій у вказаному діапазоні немає."))
+            messagebox.showinfo("Info", "Подій у вказаному діапазоні немає.")
             return
-        print(yellow(f"Знайдено {len(all_events)} подій у діапазоні."))
-        confirm = input(yellow("Ви впевнені, що хочете видалити всі ці події? (так/ні): ")).strip().lower()
-        if confirm != 'так':
-            print(yellow("Видалення скасовано."))
+        confirm = messagebox.askyesno("Confirm", f"Знайдено {len(all_events)} подій у діапазоні. Ви впевнені, що хочете видалити всі ці події?")
+        if not confirm:
             return
         for event in all_events:
             start = event.get('start', {})
             start_dt_str = start.get('dateTime') or start.get('date')
             if not start_dt_str:
-                print(yellow("DEBUG: Пропущено подію без дати"))
                 continue
             try:
                 if 'dateTime' in start:
@@ -152,7 +141,6 @@ def clear_events():
                     event_dt = datetime.strptime(start_dt_str, '%Y-%m-%d')
                 event_dt = event_dt.astimezone(tz) if event_dt.tzinfo else tz.localize(event_dt)
             except Exception as e:
-                print(yellow(f"DEBUG: Не вдалося розпарсити дату {start_dt_str}: {e}"))
                 continue
             # Inclusive range check
             if tz.localize(start_date) <= event_dt <= tz.localize(end_date):
@@ -161,20 +149,17 @@ def clear_events():
                         calendarId=calendar_id,
                         eventId=event['id']
                     ).execute()
-                    print(green(f"Видалено: {event.get('summary', 'без назви')} ({start_dt_str})"))
                     deleted_count += 1
                 except HttpError as error:
-                    print(red(f"Помилка видалення події {event.get('summary', 'без назви')}: {error}"))
-            else:
-                print(yellow(f"DEBUG: Пропущено подію {event.get('summary', 'без назви')} (не входить у діапазон)"))
-        print(green(f"Видалення завершено. Видалено {deleted_count} подій."))
+                    pass
+        messagebox.showinfo("Success", f"Видалення завершено. Видалено {deleted_count} подій.")
     except HttpError as error:
-        print(red(f"Помилка при отриманні подій: {error}"))
+        messagebox.showerror("Error", f"Помилка при отриманні подій: {error}")
 
-def insert_events_to_gcal(events, date_str):
+def insert_events_to_gcal_gui(events, date_str, progress_callback=None):
     calendar_id = get_calendar_id()
     if not calendar_id:
-        print('Не знайдено GOOGLE_CALENDAR_ID у .env')
+        messagebox.showerror("Error", 'Не знайдено GOOGLE_CALENDAR_ID у .env')
         return
     creds = get_google_credentials()
     service = build('calendar', 'v3', credentials=creds)
@@ -195,11 +180,12 @@ def insert_events_to_gcal(events, date_str):
         }
         try:
             service.events().insert(calendarId=calendar_id, body=event).execute()
-            print(green(f"Додано: {row['Назва']} ({row['Початок']} - {row['Кінець']})"))
             count += 1
+            if progress_callback:
+                progress_callback(count)
         except Exception as e:
-            print(red(f"Помилка додавання події: {e}"))
-    print(green(f"Додано {count} подій у Google Calendar ({calendar_id})"))
+            pass
+    messagebox.showinfo("Success", f"Додано {count} подій у Google Calendar ({calendar_id})")
 ALLOWED_NAMES = []
 
 # --- Отримання даних SDUI ---
@@ -296,61 +282,111 @@ def transform_sdui_to_csv_rows(sdui_data):
 
     return rows
 
-# --- Основна функція ---
-def main():
-    print("\n" + "="*40)
-    print(cyan("SDUI Calendar Tool"))
-    print("="*40)
-    print(cyan("1. Додати події SDUI у Google Calendar"))
-    print(cyan("2. Очистити події у Google Calendar за діапазоном дат"))
-    print("="*40)
-    while True:
-        choice = input(yellow("Виберіть 1 або 2: ")).strip()
-        if choice in ('1', '2'):
-            break
-        print(red("Невірний вибір. Введіть 1 або 2."))
-
-    if choice == '2':
-        clear_events()
-        return
-
-    # Додаємо події SDUI для періоду дат
-    while True:
-        start_dm = input(cyan("Введіть дату початку (ддмм): ")).strip()
-        end_dm = input(cyan("Введіть дату кінця (ддмм): ")).strip()
-        try:
-            if len(start_dm) == 4 and len(end_dm) == 4 and start_dm.isdigit() and end_dm.isdigit():
-                year = 2025
-                start_date = datetime(year, int(start_dm[2:]), int(start_dm[:2]))
-                end_date = datetime(year, int(end_dm[2:]), int(end_dm[:2]))
-                if end_date < start_date:
-                    raise ValueError
-                break
-            else:
-                raise ValueError
-        except Exception:
-            print(red("Невірний формат дат! Використовуйте ддмм для обох дат, кінець >= початок."))
-
+# --- GUI Functions ---
+def add_sdui_events_gui(start_date, end_date, progress_var, progress_label):
     current_date = start_date
     all_rows = []
-    while current_date <= end_date:
-        date_str = current_date.strftime("%Y-%m-%d")
+    total_days = (end_date - start_date).days + 1
+    progress_var.set(0)
+    progress_label.config(text="Fetching SDUI data...")
+    root.update_idletasks()
+
+    for i, current_date in enumerate(range((end_date - start_date).days + 1)):
+        date = start_date + timedelta(days=i)
+        date_str = date.strftime("%Y-%m-%d")
         url = f"https://api.sdui.app/v1/timetables/users/{SDUI_USER_ID}/timetable?begins_at={date_str}&ends_at={date_str}"
-        print(yellow(f"Отримуємо дані SDUI за {date_str}..."))
         sdui_data = get_sdui_data_with_token(url, SDUI_AUTH_TOKEN)
-        if not sdui_data:
-            print(red(f"Не вдалося отримати дані SDUI за {date_str}."))
-        else:
+        if sdui_data:
             rows = transform_sdui_to_csv_rows(sdui_data)
             if rows:
                 all_rows.extend(rows)
-        current_date += timedelta(days=1)
+        progress_var.set((i + 1) / total_days * 50)  # First 50% for fetching
+        progress_label.config(text=f"Fetching data for {date_str}...")
+        root.update_idletasks()
 
     if not all_rows:
-        print(yellow("Не знайдено подій після фільтрації."))
+        messagebox.showinfo("Info", "Не знайдено подій після фільтрації.")
         return
 
-    insert_events_to_gcal(all_rows, f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}")
+    progress_label.config(text="Adding events to Google Calendar...")
+    root.update_idletasks()
+
+    def progress_callback(count):
+        progress_var.set(50 + (count / len(all_rows)) * 50)  # Next 50% for adding
+        progress_label.config(text=f"Added {count}/{len(all_rows)} events...")
+        root.update_idletasks()
+
+    insert_events_to_gcal_gui(all_rows, f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}", progress_callback)
+
+def create_gui():
+    global root
+    root = tk.Tk()
+    root.title("SDUI Calendar Tool")
+    root.geometry("400x300")
+
+    ttk.Label(root, text="SDUI Calendar Tool", font=("Arial", 16)).pack(pady=10)
+
+    def on_add_events():
+        dialog = tk.Toplevel(root)
+        dialog.title("Add SDUI Events")
+        dialog.geometry("300x250")
+
+        ttk.Label(dialog, text="Start Date:").pack(pady=5)
+        start_date_entry = DateEntry(dialog, width=12, background='darkblue', foreground='white', borderwidth=2)
+        start_date_entry.pack(pady=5)
+
+        ttk.Label(dialog, text="End Date:").pack(pady=5)
+        end_date_entry = DateEntry(dialog, width=12, background='darkblue', foreground='white', borderwidth=2)
+        end_date_entry.pack(pady=5)
+
+        progress_var = tk.DoubleVar()
+        progress_bar = ttk.Progressbar(dialog, variable=progress_var, maximum=100)
+        progress_bar.pack(pady=10, fill=tk.X, padx=20)
+
+        progress_label = ttk.Label(dialog, text="")
+        progress_label.pack(pady=5)
+
+        def start_add():
+            start_date = start_date_entry.get_date()
+            end_date = end_date_entry.get_date()
+            if end_date < start_date:
+                messagebox.showerror("Error", "End date must be after start date")
+                return
+            add_sdui_events_gui(start_date, end_date, progress_var, progress_label)
+
+        ttk.Button(dialog, text="Add Events", command=start_add).pack(pady=10)
+
+    def on_clear_events():
+        dialog = tk.Toplevel(root)
+        dialog.title("Clear Events")
+        dialog.geometry("300x200")
+
+        ttk.Label(dialog, text="Start Date:").pack(pady=5)
+        start_date_entry = DateEntry(dialog, width=12, background='darkblue', foreground='white', borderwidth=2)
+        start_date_entry.pack(pady=5)
+
+        ttk.Label(dialog, text="End Date:").pack(pady=5)
+        end_date_entry = DateEntry(dialog, width=12, background='darkblue', foreground='white', borderwidth=2)
+        end_date_entry.pack(pady=5)
+
+        def start_clear():
+            start_date = start_date_entry.get_date()
+            end_date = end_date_entry.get_date()
+            if end_date < start_date:
+                messagebox.showerror("Error", "End date must be after start date")
+                return
+            clear_events_gui(start_date, end_date)
+
+        ttk.Button(dialog, text="Clear Events", command=start_clear).pack(pady=10)
+
+    ttk.Button(root, text="Add SDUI Events to Google Calendar", command=on_add_events).pack(pady=10)
+    ttk.Button(root, text="Clear Events in Google Calendar", command=on_clear_events).pack(pady=10)
+
+    root.mainloop()
+
+# --- Основна функція ---
+def main():
+    create_gui()
 
 if __name__ == '__main__':
     main()
