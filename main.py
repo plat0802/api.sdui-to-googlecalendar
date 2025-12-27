@@ -1,392 +1,355 @@
-
 import requests
 from datetime import datetime, timedelta
 import pytz
-import csv
 import os
 import json
+import sys
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 from google.auth.transport.requests import Request
-import json
-import tkinter as tk
-from tkinter import messagebox, ttk
-from tkcalendar import DateEntry
+from google_auth_oauthlib.flow import InstalledAppFlow
 
-# Terminal color helpers
-def color(text, code):
-    return f"\033[{code}m{text}\033[0m"
-
-def green(text):
-    return color(text, '32')
-
-def red(text):
-    return color(text, '31')
-
-def yellow(text):
-    return color(text, '33')
-
-def cyan(text):
-    return color(text, '36')
-
-# --- Конфігурація (замість .env) ---
+# --- Configuration Helper ---
 def read_env_key(key, default=None):
-    """Read a single key from a local .env file (simple parser). If not found, fall back to environment variables."""
+    """Read a key from .env file or environment variables."""
     try:
-        with open('.env', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if '=' in line:
-                    k, v = line.split('=', 1)
-                    if k.strip() == key:
-                        return v.strip()
+        if os.path.exists('.env'):
+            with open('.env', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    if '=' in line:
+                        k, v = line.split('=', 1)
+                        if k.strip() == key:
+                            return v.strip().strip('"').strip("'")
     except Exception:
         pass
     return os.environ.get(key, default)
 
-# Load personal/config values from .env or environment (keeps secrets out of the code)
-SDUI_USER_ID = read_env_key('SDUI_USER_ID') or "557035"
-SDUI_AUTH_TOKEN = read_env_key('SDUI_AUTH_TOKEN') or ""
-TIMEZONE = read_env_key('TIMEZONE') or 'Europe/Berlin'
+# Load Configuration
+SDUI_USER_ID = read_env_key('SDUI_USER_ID')
+SDUI_AUTH_TOKEN = read_env_key('SDUI_AUTH_TOKEN')
+TIMEZONE = read_env_key('TIMEZONE', 'Europe/Berlin')
+GOOGLE_CALENDAR_ID = read_env_key('GOOGLE_CALENDAR_ID', 'primary')
 
-# --- Google Calendar config ---
-def get_calendar_id():
-    """Return calendar id from .env or environment variable GOOGLE_CALENDAR_ID."""
-    return read_env_key('GOOGLE_CALENDAR_ID')
+# --- AUTO-FIX: Sanity Check for Calendar ID ---
+# If the user accidentally pasted the JSON credentials into the ID field, revert to primary.
+if GOOGLE_CALENDAR_ID and (len(GOOGLE_CALENDAR_ID) > 80 or '{' in GOOGLE_CALENDAR_ID):
+    print("! Warning: GOOGLE_CALENDAR_ID in .env looks incorrect (too long or contains JSON).")
+    print("! Auto-correcting to 'primary'.")
+    GOOGLE_CALENDAR_ID = 'primary'
 
+# --- Google Calendar Config ---
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 TOKEN_FILE = 'token.json'
 CREDENTIALS_FILE = 'credentials.json'
 
 def get_google_credentials():
     creds = None
-    # Try token from .env first (TOKEN_JSON). If present, load credentials from that JSON blob.
-    token_json = read_env_key('TOKEN_JSON')
-    if token_json:
+    if os.path.exists(TOKEN_FILE):
         try:
-            creds = Credentials.from_authorized_user_info(json.loads(token_json), SCOPES)
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
         except Exception:
-            creds = None
-    elif os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+            print("! Token file invalid, re-authenticating...")
+    
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            # Try credentials config from .env (CREDENTIALS_JSON) then fall back to file
-            cred_json = read_env_key('CREDENTIALS_JSON')
-            if cred_json:
-                cred_data = json.loads(cred_json)
-            else:
-                with open(CREDENTIALS_FILE, encoding='utf-8') as cred_file:
-                    cred_data = json.load(cred_file)
-            from google_auth_oauthlib.flow import InstalledAppFlow
-            # use client config (dict) to avoid requiring a file on disk
-            flow = InstalledAppFlow.from_client_config(cred_data, SCOPES)
-            creds = flow.run_local_server(port=0)
-        # If user stores token in .env (TOKEN_JSON), do not overwrite files. Otherwise persist token to TOKEN_FILE.
-        if not read_env_key('TOKEN_JSON'):
-            with open(TOKEN_FILE, 'w') as token:
-                token.write(creds.to_json())
+            try:
+                creds.refresh(Request())
+            except Exception:
+                print("! Refresh failed. Please re-login.")
+                creds = None
+        
+        if not creds:
+            if not os.path.exists(CREDENTIALS_FILE):
+                print(f"ERROR: {CREDENTIALS_FILE} not found. Please upload it.")
+                return None
+            
+            print("... Starting Google Authentication")
+            # Use run_local_server for modern authentication
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+            creds = flow.run_local_server(port=0, open_browser=False)
+
+        with open(TOKEN_FILE, 'w') as token:
+            token.write(creds.to_json())
+            
     return creds
 
-
-def clear_events_gui(start_date, end_date):
-    calendar_id = get_calendar_id()
-    if not calendar_id:
-        messagebox.showerror("Error", 'Не знайдено GOOGLE_CALENDAR_ID у .env')
-        return
+def get_calendar_service():
+    print("... Connecting to Google Calendar")
     creds = get_google_credentials()
-    service = build('calendar', 'v3', credentials=creds)
-    # Make end_date inclusive
-    end_date = end_date.replace(hour=23, minute=59, second=59)
-    tz = pytz.timezone(TIMEZONE)
-    time_min = tz.localize(start_date).isoformat()
-    time_max = tz.localize(end_date).isoformat()
-    try:
-        deleted_count = 0
-        page_token = None
-        all_events = []
-        while True:
-            events_result = service.events().list(
-                calendarId=calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                singleEvents=True,
-                orderBy='startTime',
-                pageToken=page_token
-            ).execute()
-            all_events.extend(events_result.get('items', []))
-            page_token = events_result.get('nextPageToken')
-            if not page_token:
-                break
-        if not all_events:
-            messagebox.showinfo("Info", "Подій у вказаному діапазоні немає.")
-            return
-        confirm = messagebox.askyesno("Confirm", f"Знайдено {len(all_events)} подій у діапазоні. Ви впевнені, що хочете видалити всі ці події?")
-        if not confirm:
-            return
-        for event in all_events:
-            start = event.get('start', {})
-            start_dt_str = start.get('dateTime') or start.get('date')
-            if not start_dt_str:
-                continue
-            try:
-                if 'dateTime' in start:
-                    event_dt = datetime.fromisoformat(start_dt_str)
-                else:
-                    event_dt = datetime.strptime(start_dt_str, '%Y-%m-%d')
-                event_dt = event_dt.astimezone(tz) if event_dt.tzinfo else tz.localize(event_dt)
-            except Exception as e:
-                continue
-            # Inclusive range check
-            if tz.localize(start_date) <= event_dt <= tz.localize(end_date):
-                try:
-                    service.events().delete(
-                        calendarId=calendar_id,
-                        eventId=event['id']
-                    ).execute()
-                    deleted_count += 1
-                except HttpError as error:
-                    pass
-        messagebox.showinfo("Success", f"Видалення завершено. Видалено {deleted_count} подій.")
-    except HttpError as error:
-        messagebox.showerror("Error", f"Помилка при отриманні подій: {error}")
+    if creds:
+        return build('calendar', 'v3', credentials=creds)
+    return None
 
-def insert_events_to_gcal_gui(events, date_str, progress_callback=None):
-    calendar_id = get_calendar_id()
-    if not calendar_id:
-        messagebox.showerror("Error", 'Не знайдено GOOGLE_CALENDAR_ID у .env')
-        return
-    creds = get_google_credentials()
-    service = build('calendar', 'v3', credentials=creds)
-    count = 0
-    for row in events:
-        event = {
-            'summary': row['Назва'],
-            'description': row['Опис'],
-            'location': row['Аудиторія'],
-            'start': {
-                'dateTime': datetime.strptime(row['Початок'], '%Y-%m-%d %H:%M').astimezone(pytz.timezone(TIMEZONE)).isoformat(),
-                'timeZone': TIMEZONE
-            },
-            'end': {
-                'dateTime': datetime.strptime(row['Кінець'], '%Y-%m-%d %H:%M').astimezone(pytz.timezone(TIMEZONE)).isoformat(),
-                'timeZone': TIMEZONE
-            },
-        }
-        try:
-            service.events().insert(calendarId=calendar_id, body=event).execute()
-            count += 1
-            if progress_callback:
-                progress_callback(count)
-        except Exception as e:
-            pass
-    messagebox.showinfo("Success", f"Додано {count} подій у Google Calendar ({calendar_id})")
-ALLOWED_NAMES = []
-
-# --- Отримання даних SDUI ---
-def get_sdui_data_with_token(url, auth_token):
-    headers = {'Authorization': auth_token, 'User-Agent': 'Mozilla/5.0'}
+# --- SDUI Data Fetching ---
+def get_sdui_data(start_date, end_date):
+    if not SDUI_AUTH_TOKEN or not SDUI_USER_ID:
+        print("\nERROR: SDUI_USER_ID or SDUI_AUTH_TOKEN is missing in .env")
+        return None
+    
+    print(f"... Fetching SDUI data from {start_date} to {end_date}")
+    
+    headers = {
+        'Authorization': f'Bearer {SDUI_AUTH_TOKEN}', 
+        'User-Agent': 'Mozilla/5.0'
+    }
+    
+    begins_at = start_date.strftime("%Y-%m-%d")
+    ends_at = end_date.strftime("%Y-%m-%d")
+    
+    url = f"https://api.sdui.app/v1/timetables/users/{SDUI_USER_ID}/timetable?begins_at={begins_at}&ends_at={ends_at}"
+    
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Помилка підключення до SDUI: {e}")
+        if response.status_code == 401:
+             print("\nERROR: Authentication Failed (401). Token expired.")
+        else:
+            print(f"\nERROR: Network Error: {e}")
         return None
 
-# --- Перетворення SDUI у CSV-рядки ---
-def transform_sdui_to_csv_rows(sdui_data):
-    rows = []
+def process_sdui_data(sdui_data):
+    events = []
+    if not sdui_data or 'data' not in sdui_data:
+        return events
+        
     lessons = sdui_data.get('data', {}).get('lessons', [])
+    if not lessons:
+        return events
 
-    # Mapping for event types
+    tz = pytz.timezone(TIMEZONE)
+
     oftype_map = {
-        "": "",
-        "CANCLED": "Entfall: ",
-        "BOOKABLE_CHANGE": "Raum Geändert: ",
-        "ADDITIONAL": "Info: ",
-        "SUBSTITUTION": "Vertretung: ",
-        "EVENT": "EVENT: ",
-        "HOLIDAY": "Ferien: "
+        "CANCLED": "❌ Cancelled: ",
+        "BOOKABLE_CHANGE": "⚠️ Room: ",
+        "SUBSTITUTION": "🔄 Sub: ",
+        "EXAM": "📝 Exam: ",
+        "HOLIDAY": "🏖️ Holiday: "
     }
 
-    for sdui_event in lessons:
-        if not sdui_event:
-            continue
-
-        # Defensive extraction
-        course = sdui_event.get('course') or {}
+    for lesson in lessons:
+        # Safe access using 'or {}'
+        course = lesson.get('course') or {}
         meta = course.get('meta') or {}
-        subject_name_full = meta.get('displayname', 'Невідоме заняття').strip()
+        
+        subject = meta.get('displayname', 'Unknown')
+        if '_' in subject:
+            subject = subject.split('_')[-1]
 
-        # Improved subject name extraction (split only on first underscore)
-        parts = subject_name_full.split('_', 1)
-        original_name = parts[0] if len(parts) == 1 else parts[0] + '_' + parts[1].split('_')[0]
-        if original_name in ALLOWED_NAMES:
+        kind = lesson.get('kind')
+        oftype = lesson.get('oftype')
+        prefix = oftype_map.get(oftype, "")
+        
+        summary = f"{prefix}{subject}"
+        
+        ts_start = lesson.get('begins_at')
+        ts_end = lesson.get('ends_at')
+        if not ts_start or not ts_end:
             continue
-
-        # Use the part after the first underscore, or the whole name if none
-        subject_name = parts[1] if len(parts) > 1 else parts[0]
-
-
-        # Event type prefix and status in summary
-        oftype = sdui_event.get('oftype', '')
-        prefix = oftype_map.get(oftype, f"{oftype}: ")
-        # Always include subject name and event type in summary
-        summary_parts = []
-        if prefix.strip():
-            summary_parts.append(prefix.strip())
-        if subject_name.strip():
-            summary_parts.append(subject_name.strip())
-        else:
-            summary_parts.append('Без назви')
-        summary = ' '.join(summary_parts)
-
-        begins_at = sdui_event.get('begins_at')
-        ends_at = sdui_event.get('ends_at')
-        if not begins_at or not ends_at:
-            print(f"Warning: Missing time for event {subject_name_full}")
-            continue
-
-        local_timezone = pytz.timezone(TIMEZONE)
-        start_datetime = local_timezone.localize(datetime.fromtimestamp(begins_at))
-        end_datetime = local_timezone.localize(datetime.fromtimestamp(ends_at))
-
-        # Multiple bookables/rooms
-        bookables = sdui_event.get('bookables', [])
-        room_info = ', '.join([b.get('name', 'Невідомо') for b in bookables]) if bookables else 'Невідомо'
-
-        # Multiple teachers
-        teachers = sdui_event.get('teachers', [])
-        teacher_info = ', '.join([t.get('name', 'Невідомо') for t in teachers]) if teachers else 'Невідомо'
-
-        # Add notes if present
-        notes = sdui_event.get('notes', '')
-        description = f"Вчитель: {teacher_info} | Аудиторія: {room_info}"
-        if notes:
-            description += f" | Примітка: {notes}"
-
-        rows.append({
-            'Назва': summary,
-            'Вчитель': teacher_info,
-            'Аудиторія': room_info,
-            'Початок': start_datetime.strftime('%Y-%m-%d %H:%M'),
-            'Кінець': end_datetime.strftime('%Y-%m-%d %H:%M'),
-            'Опис': description
+            
+        dt_start = datetime.fromtimestamp(ts_start, tz)
+        dt_end = datetime.fromtimestamp(ts_end, tz)
+        
+        bookables = lesson.get('bookables') or []
+        teachers_list = lesson.get('teachers') or []
+        
+        rooms = [b['name'] for b in bookables if 'name' in b]
+        teachers = [t['name'] for t in teachers_list if 'name' in t]
+        
+        location = ", ".join(rooms)
+        description = f"Teacher: {', '.join(teachers)}\nType: {kind or oftype}"
+        
+        events.append({
+            'summary': summary,
+            'start': dt_start.isoformat(),
+            'end': dt_end.isoformat(),
+            'location': location,
+            'description': description
         })
+    return events
 
-    return rows
+# --- CLI Helpers ---
+def get_date_input(prompt):
+    while True:
+        date_str = input(prompt + " (YYYY-MM-DD): ").strip()
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            print("Invalid format. Please use YYYY-MM-DD")
 
-# --- GUI Functions ---
-def add_sdui_events_gui(start_date, end_date, progress_var, progress_label):
-    current_date = start_date
-    all_rows = []
-    total_days = (end_date - start_date).days + 1
-    progress_var.set(0)
-    progress_label.config(text="Fetching SDUI data...")
-    root.update_idletasks()
+def print_progress(current, total):
+    percent = float(current) / total
+    bar_length = 20
+    arrow = '-' * int(round(percent * bar_length) - 1) + '>'
+    spaces = ' ' * (bar_length - len(arrow))
+    sys.stdout.write(f"\rProgress: [{arrow + spaces}] {int(percent * 100)}%")
+    sys.stdout.flush()
 
-    for i, current_date in enumerate(range((end_date - start_date).days + 1)):
-        date = start_date + timedelta(days=i)
-        date_str = date.strftime("%Y-%m-%d")
-        url = f"https://api.sdui.app/v1/timetables/users/{SDUI_USER_ID}/timetable?begins_at={date_str}&ends_at={date_str}"
-        sdui_data = get_sdui_data_with_token(url, SDUI_AUTH_TOKEN)
-        if sdui_data:
-            rows = transform_sdui_to_csv_rows(sdui_data)
-            if rows:
-                all_rows.extend(rows)
-        progress_var.set((i + 1) / total_days * 50)  # First 50% for fetching
-        progress_label.config(text=f"Fetching data for {date_str}...")
-        root.update_idletasks()
+# --- Logic Core ---
+def perform_sync(start, end):
+    """Reusable logic to fetch and upload events."""
+    try:
+        data = get_sdui_data(start, end)
+        if not data:
+            return
 
-    if not all_rows:
-        messagebox.showinfo("Info", "Не знайдено подій після фільтрації.")
+        events = process_sdui_data(data)
+        if not events:
+            print("\nNo events found.")
+            return
+
+        print(f"\nFound {len(events)} events.")
+        service = get_calendar_service()
+        if not service:
+            return
+
+        print(f"Uploading to calendar: {GOOGLE_CALENDAR_ID}")
+        count = 0
+        for i, event in enumerate(events):
+            body = {
+                'summary': event['summary'],
+                'location': event['location'],
+                'description': event['description'],
+                'start': {'dateTime': event['start'], 'timeZone': TIMEZONE},
+                'end': {'dateTime': event['end'], 'timeZone': TIMEZONE},
+            }
+            try:
+                service.events().insert(calendarId=GOOGLE_CALENDAR_ID, body=body).execute()
+                count += 1
+            except Exception as e:
+                # Catch 404s cleanly
+                if '404' in str(e) and 'Not Found' in str(e):
+                    print(f"\nCRITICAL ERROR: Calendar ID '{GOOGLE_CALENDAR_ID}' not found.")
+                    print("Please check your .env file or credentials.")
+                    return
+                print(f"\nError on item {i}: {e}")
+            
+            print_progress(i + 1, len(events))
+        
+        print(f"\n\nDone! Imported {count} events.")
+    except Exception as e:
+        print(f"\nCRITICAL ERROR DURING SYNC: {e}")
+        import traceback
+        traceback.print_exc()
+
+# --- Main Actions ---
+def run_sync_week():
+    print("\n--- SYNC SPECIFIC WEEK (2026) ---")
+    try:
+        week_input = input("Enter Week Number (1-53): ").strip()
+        if not week_input.isdigit():
+             print("Invalid input. Please enter a number.")
+             return
+             
+        week_num = int(week_input)
+        year = 2026
+        
+        if week_num < 1 or week_num > 53:
+            print("Week number must be between 1 and 53.")
+            return
+
+        start_dt = datetime.fromisocalendar(year, week_num, 1)
+        end_dt = datetime.fromisocalendar(year, week_num, 7)
+        
+        start = start_dt.date()
+        end = end_dt.date()
+        
+        print(f"Syncing Week {week_num}, {year} ({start} to {end})...")
+        perform_sync(start, end)
+        
+    except Exception as e:
+        print(f"Error calculating dates: {e}")
+
+def run_import_custom():
+    print("\n--- CUSTOM RANGE SYNC ---")
+    start = get_date_input("Start Date")
+    end = get_date_input("End Date")
+    
+    if end < start:
+        print("Error: End date is before start date.")
+        return
+        
+    perform_sync(start, end)
+
+def run_sync_today():
+    tz = pytz.timezone(TIMEZONE)
+    today = datetime.now(tz).date()
+    print(f"\n--- SYNCING TODAY ({today}) ---")
+    perform_sync(today, today)
+
+def run_clear():
+    print("\n--- DELETE EVENTS ---")
+    start = get_date_input("Start Date")
+    end = get_date_input("End Date")
+    
+    confirm = input(f"Are you sure you want to DELETE ALL events from {start} to {end}? (y/n): ")
+    if confirm.lower() != 'y':
         return
 
-    progress_label.config(text="Adding events to Google Calendar...")
-    root.update_idletasks()
+    service = get_calendar_service()
+    if not service:
+        return
 
-    def progress_callback(count):
-        progress_var.set(50 + (count / len(all_rows)) * 50)  # Next 50% for adding
-        progress_label.config(text=f"Added {count}/{len(all_rows)} events...")
-        root.update_idletasks()
+    tz = pytz.timezone(TIMEZONE)
+    start_dt = tz.localize(datetime.combine(start, datetime.min.time()))
+    end_dt = tz.localize(datetime.combine(end, datetime.max.time()))
+    
+    page_token = None
+    deleted = 0
+    
+    print("Deleting...")
+    while True:
+        events_result = service.events().list(
+            calendarId=GOOGLE_CALENDAR_ID,
+            timeMin=start_dt.isoformat(),
+            timeMax=end_dt.isoformat(),
+            singleEvents=True,
+            pageToken=page_token
+        ).execute()
+        
+        events = events_result.get('items', [])
+        for event in events:
+            try:
+                service.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=event['id']).execute()
+                deleted += 1
+                sys.stdout.write(f"\rDeleted: {deleted}")
+                sys.stdout.flush()
+            except:
+                pass
+        
+        page_token = events_result.get('nextPageToken')
+        if not page_token:
+            break
+            
+    print(f"\nDone. Deleted {deleted} events.")
 
-    insert_events_to_gcal_gui(all_rows, f"{start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}", progress_callback)
+def main_menu():
+    print("\n=== SDUI to Google Calendar (CLI) ===")
+    while True:
+        print("\n1. Sync Today")
+        print("2. Sync Week (2026)")
+        print("3. Sync Custom Range")
+        print("4. Clear Events")
+        print("5. Exit")
+        choice = input("Select option (1-5): ").strip()
+        
+        if choice == '1':
+            run_sync_today()
+        elif choice == '2':
+            run_sync_week()
+        elif choice == '3':
+            run_import_custom()
+        elif choice == '4':
+            run_clear()
+        elif choice == '5':
+            print("Bye!")
+            break
+        else:
+            print("Invalid option.")
 
-def create_gui():
-    global root
-    root = tk.Tk()
-    root.title("SDUI Calendar Tool")
-    root.geometry("400x300")
-
-    ttk.Label(root, text="SDUI Calendar Tool", font=("Arial", 16)).pack(pady=10)
-
-    def on_add_events():
-        dialog = tk.Toplevel(root)
-        dialog.title("Add SDUI Events")
-        dialog.geometry("300x250")
-
-        ttk.Label(dialog, text="Start Date:").pack(pady=5)
-        start_date_entry = DateEntry(dialog, width=12, background='darkblue', foreground='white', borderwidth=2)
-        start_date_entry.pack(pady=5)
-
-        ttk.Label(dialog, text="End Date:").pack(pady=5)
-        end_date_entry = DateEntry(dialog, width=12, background='darkblue', foreground='white', borderwidth=2)
-        end_date_entry.pack(pady=5)
-
-        progress_var = tk.DoubleVar()
-        progress_bar = ttk.Progressbar(dialog, variable=progress_var, maximum=100)
-        progress_bar.pack(pady=10, fill=tk.X, padx=20)
-
-        progress_label = ttk.Label(dialog, text="")
-        progress_label.pack(pady=5)
-
-        def start_add():
-            start_date = start_date_entry.get_date()
-            end_date = end_date_entry.get_date()
-            if end_date < start_date:
-                messagebox.showerror("Error", "End date must be after start date")
-                return
-            add_sdui_events_gui(start_date, end_date, progress_var, progress_label)
-
-        ttk.Button(dialog, text="Add Events", command=start_add).pack(pady=10)
-
-    def on_clear_events():
-        dialog = tk.Toplevel(root)
-        dialog.title("Clear Events")
-        dialog.geometry("300x200")
-
-        ttk.Label(dialog, text="Start Date:").pack(pady=5)
-        start_date_entry = DateEntry(dialog, width=12, background='darkblue', foreground='white', borderwidth=2)
-        start_date_entry.pack(pady=5)
-
-        ttk.Label(dialog, text="End Date:").pack(pady=5)
-        end_date_entry = DateEntry(dialog, width=12, background='darkblue', foreground='white', borderwidth=2)
-        end_date_entry.pack(pady=5)
-
-        def start_clear():
-            start_date = start_date_entry.get_date()
-            end_date = end_date_entry.get_date()
-            if end_date < start_date:
-                messagebox.showerror("Error", "End date must be after start date")
-                return
-            clear_events_gui(start_date, end_date)
-
-        ttk.Button(dialog, text="Clear Events", command=start_clear).pack(pady=10)
-
-    ttk.Button(root, text="Add SDUI Events to Google Calendar", command=on_add_events).pack(pady=10)
-    ttk.Button(root, text="Clear Events in Google Calendar", command=on_clear_events).pack(pady=10)
-
-    root.mainloop()
-
-# --- Основна функція ---
-def main():
-    create_gui()
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    main_menu()
