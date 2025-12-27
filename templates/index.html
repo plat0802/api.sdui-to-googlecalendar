@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDUI Sync</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff; /* Default text white */
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            padding-top: 30px;
+        }
+        
+        h1, h2, h3, h4, h5, h6 {
+            color: #ffffff;
+            font-weight: bold;
+        }
+
+        .card {
+            background-color: #1e1e1e;
+            border: 1px solid #333;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+        }
+
+        .card-header {
+            background-color: #2c2c2c;
+            border-bottom: 1px solid #333;
+            color: #4da3ff; 
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Form Labels - Forced White */
+        .form-label {
+            color: #ffffff !important;
+            font-weight: bold;
+            opacity: 0.9;
+        }
+
+        .form-control {
+            background-color: #2d2d2d;
+            border: 1px solid #444;
+            color: #00ff00; /* Hacker green text for inputs */
+            font-family: 'Consolas', monospace;
+        }
+
+        .form-control:focus {
+            background-color: #2d2d2d;
+            border-color: #4da3ff;
+            color: #00ff00;
+            box-shadow: none;
+        }
+        
+        .form-control::placeholder {
+            color: #888;
+        }
+
+        .btn-primary {
+            background-color: #0066cc;
+            border: none;
+            font-family: 'Consolas', monospace;
+        }
+        
+        .btn-primary:hover { background-color: #0052a3; }
+
+        .btn-success {
+            background-color: #009933;
+            border: none;
+            font-family: 'Consolas', monospace;
+        }
+        
+        .btn-success:hover { background-color: #007a29; }
+
+        .btn-danger {
+            background-color: #cc0000;
+            border: none;
+            font-family: 'Consolas', monospace;
+        }
+        
+        .btn-danger:hover { background-color: #a30000; }
+
+        .btn-outline-primary {
+            color: #4da3ff;
+            border-color: #4da3ff;
+        }
+        
+        .btn-outline-primary:hover {
+            background-color: #4da3ff;
+            color: #121212;
+        }
+
+        .alert-success { background-color: #0f3d0f; color: #80ff80; border-color: #1f5c1f; }
+        .alert-danger  { background-color: #3d0f0f; color: #ff8080; border-color: #5c1f1f; }
+        .alert-warning { background-color: #3d3d0f; color: #ffff80; border-color: #5c5c1f; }
+        .alert-info    { background-color: #0f2f3d; color: #80d4ff; border-color: #1f4c5c; }
+
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: #121212; }
+        ::-webkit-scrollbar-thumb { background: #444; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body>
+
+<div class="container" style="max-width: 900px;">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-secondary pb-2">
+        <h2>> SDUI_SYNC_TOOL <span class="blink">_</span></h2>
+        <span class="badge bg-secondary" style="font-family: Consolas;">v2.1-dark</span>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    <strong>[{{ category|upper }}]:</strong> {{ message }}
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <div class="card-body d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center">
+                <span class="me-3 text-white">[CONFIG]</span>
+                <h5 class="m-0">ACTIVE_YEAR = <span style="color: #4da3ff;">{{ year }}</span></h5>
+            </div>
+            <form action="/set_year" method="POST" class="d-flex align-items-center">
+                <input type="number" name="year" class="form-control me-2 text-center" value="{{ year }}" style="width: 100px;">
+                <button type="submit" class="btn btn-outline-primary btn-sm">UPDATE_YEAR</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">> QUICK_SYNC</div>
+                <div class="card-body text-center d-flex flex-column justify-content-center">
+                    <p class="card-text text-white"> // Sync all lessons for today immediately.</p>
+                    <a href="/sync/today" class="btn btn-success w-100 py-3">EXECUTE_SYNC_TODAY()</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">> WEEK_SYNC</div>
+                <div class="card-body">
+                    <form action="/sync/week" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">TARGET_WEEK_NUM</label>
+                            <input type="number" name="week" class="form-control" placeholder="e.g. 42" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">SYNC_WEEK()</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">> CUSTOM_RANGE</div>
+                <div class="card-body">
+                    <form action="/sync/custom" method="POST">
+                        <div class="mb-2">
+                            <label class="form-label">START_DATE</label>
+                            <input type="date" name="start" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">END_DATE</label>
+                            <input type="date" name="end" class="form-control" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">SYNC_RANGE()</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card h-100" style="border-color: #5c1f1f;">
+                <div class="card-header" style="color: #ff8080;">> DELETE_EVENTS</div>
+                <div class="card-body">
+                    <form action="/clear/weeks" method="POST" onsubmit="return confirm('WARNING: This will permanently delete events. Proceed?');">
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="form-label">START_WEEK</label>
+                                <input type="number" name="start_week" class="form-control" required>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label">END_WEEK</label>
+                                <input type="number" name="end_week" class="form-control" placeholder="(Optional)">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-danger w-100">PURGE_WEEKS()</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="text-center mt-4 text-white" style="font-size: 0.8rem; opacity: 0.7;">
+        // SYSTEM_STATUS: ONLINE<br>
+        // WAITING_FOR_INPUT...
+    </div>
+
+</div>
+
+<style>
+    .blink { animation: blinker 1.5s linear infinite; color: #00ff00; }
+    @keyframes blinker { 50% { opacity: 0; } }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
