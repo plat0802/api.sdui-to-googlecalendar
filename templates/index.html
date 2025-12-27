@@ -3,220 +3,315 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SDUI Sync</title>
+    <title>SYSTEM_SYNC_V5</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
+        :root {
+            --term-bg: #000000;
+            --term-green: #00ff00;
+            --term-white: #ffffff;
+            --term-gray: #333333;
+            --term-border: #00ff00; 
+            --term-alert: #ff0000;
+        }
+
         body {
-            background-color: #121212;
-            color: #ffffff; /* Default text white */
+            background-color: var(--term-bg);
+            color: var(--term-green);
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             padding-top: 30px;
+            padding-bottom: 50px;
+            letter-spacing: 0.5px;
         }
         
-        h1, h2, h3, h4, h5, h6 {
-            color: #ffffff;
-            font-weight: bold;
-        }
+        h1, h2, h3, h4, h5, h6 { color: var(--term-green); font-weight: bold; text-transform: uppercase; }
+        .text-white { color: var(--term-white) !important; }
+        .text-green { color: var(--term-green) !important; }
 
         .card {
-            background-color: #1e1e1e;
-            border: 1px solid #333;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            margin-bottom: 20px;
+            background-color: var(--term-bg);
+            border: 2px solid var(--term-gray);
+            border-radius: 0 !important;
+            box-shadow: none;
+            height: 100%;
         }
+        .card:hover { border-color: var(--term-green); }
 
         .card-header {
-            background-color: #2c2c2c;
-            border-bottom: 1px solid #333;
-            color: #4da3ff; 
+            background-color: var(--term-gray);
+            border-bottom: 2px solid var(--term-gray);
+            border-radius: 0 !important;
+            color: var(--term-white); 
             font-weight: bold;
             text-transform: uppercase;
-            letter-spacing: 1px;
         }
 
-        /* Form Labels - Forced White */
-        .form-label {
-            color: #ffffff !important;
-            font-weight: bold;
-            opacity: 0.9;
-        }
-
+        /* INPUTS */
+        .form-label { color: var(--term-green) !important; font-weight: bold; text-transform: uppercase; font-size: 0.8rem; }
         .form-control {
-            background-color: #2d2d2d;
-            border: 1px solid #444;
-            color: #00ff00; /* Hacker green text for inputs */
+            background-color: #111;
+            border: 1px solid var(--term-white);
+            border-radius: 0 !important;
+            color: var(--term-white);
+            font-family: 'Consolas', monospace;
+            font-weight: bold;
+        }
+        .form-control:focus { background-color: #000; border-color: var(--term-green); color: var(--term-white); box-shadow: 0 0 0 2px rgba(0, 255, 0, 0.2); }
+        .form-control::placeholder { color: #666; font-style: italic; }
+
+        /* BUTTONS */
+        .btn { border-radius: 0 !important; font-family: 'Consolas', monospace; font-weight: bold; text-transform: uppercase; border: 2px solid transparent; }
+        .btn-primary { background-color: transparent; border: 2px solid var(--term-green); color: var(--term-green); }
+        .btn-primary:hover { background-color: var(--term-green); color: black; }
+        .btn-success { background-color: var(--term-green); color: black; border: 2px solid var(--term-green); }
+        .btn-success:hover { background-color: #00cc00; border-color: #00cc00; }
+        .btn-danger { background-color: transparent; border: 2px solid var(--term-alert); color: var(--term-alert); }
+        .btn-danger:hover { background-color: var(--term-alert); color: black; }
+        
+        .btn-stop {
+            background-color: var(--term-alert); color: white; font-weight: bold; border: 4px double white;
+            width: 100%; padding: 15px; font-size: 1.2rem; animation: blinkRed 1s infinite;
+        }
+        @keyframes blinkRed { 50% { opacity: 0.7; } }
+
+        /* MODAL */
+        .modal-content {
+            background-color: #000;
+            border: 2px solid var(--term-white);
+            border-radius: 0;
+            color: var(--term-green);
             font-family: 'Consolas', monospace;
         }
+        .modal-header { border-bottom: 1px solid var(--term-gray); }
+        .modal-footer { border-top: 1px solid var(--term-gray); }
+        .btn-close { filter: invert(1); opacity: 0.8; }
 
-        .form-control:focus {
-            background-color: #2d2d2d;
-            border-color: #4da3ff;
-            color: #00ff00;
-            box-shadow: none;
+        /* TERMINAL & TOASTS */
+        #terminal-container { margin-top: 30px; }
+        #terminal {
+            background-color: #000; border: 2px solid var(--term-gray); padding: 15px; height: 350px; overflow-y: auto; color: #ddd; font-size: 0.9rem; line-height: 1.3;
         }
-        
-        .form-control::placeholder {
-            color: #888;
+        .log-line { margin: 0; white-space: pre-wrap; }
+        .flash-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+        .custom-toast {
+            background-color: #000; color: #fff; border: 2px solid #fff; padding: 15px; width: 350px;
+            display: flex; justify-content: space-between; font-family: 'Consolas', monospace;
+            box-shadow: 4px 4px 0px rgba(255,255,255,0.2); animation: slideIn 0.3s forwards;
         }
-
-        .btn-primary {
-            background-color: #0066cc;
-            border: none;
-            font-family: 'Consolas', monospace;
-        }
-        
-        .btn-primary:hover { background-color: #0052a3; }
-
-        .btn-success {
-            background-color: #009933;
-            border: none;
-            font-family: 'Consolas', monospace;
-        }
-        
-        .btn-success:hover { background-color: #007a29; }
-
-        .btn-danger {
-            background-color: #cc0000;
-            border: none;
-            font-family: 'Consolas', monospace;
-        }
-        
-        .btn-danger:hover { background-color: #a30000; }
-
-        .btn-outline-primary {
-            color: #4da3ff;
-            border-color: #4da3ff;
-        }
-        
-        .btn-outline-primary:hover {
-            background-color: #4da3ff;
-            color: #121212;
-        }
-
-        .alert-success { background-color: #0f3d0f; color: #80ff80; border-color: #1f5c1f; }
-        .alert-danger  { background-color: #3d0f0f; color: #ff8080; border-color: #5c1f1f; }
-        .alert-warning { background-color: #3d3d0f; color: #ffff80; border-color: #5c5c1f; }
-        .alert-info    { background-color: #0f2f3d; color: #80d4ff; border-color: #1f4c5c; }
-
-        ::-webkit-scrollbar { width: 10px; }
-        ::-webkit-scrollbar-track { background: #121212; }
-        ::-webkit-scrollbar-thumb { background: #444; }
-        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        .toast-success { border-color: var(--term-green); color: var(--term-green); }
+        .toast-danger { border-color: var(--term-alert); color: var(--term-alert); }
+        .toast-info { border-color: #00ffff; color: #00ffff; }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        ::-webkit-scrollbar { width: 12px; }
+        ::-webkit-scrollbar-track { background: #000; border-left: 1px solid #333; }
+        ::-webkit-scrollbar-thumb { background: #444; border: 1px solid #000; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--term-green); }
     </style>
 </head>
 <body>
 
-<div class="container" style="max-width: 900px;">
-    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-secondary pb-2">
-        <h2>> SDUI_SYNC_TOOL <span class="blink">_</span></h2>
-        <span class="badge bg-secondary" style="font-family: Consolas;">v2.1-dark</span>
-    </div>
-
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            {% for category, message in messages %}
-                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                    <strong>[{{ category|upper }}]:</strong> {{ message }}
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
-                </div>
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
-
-    <div class="card">
-        <div class="card-body d-flex justify-content-between align-items-center">
-            <div class="d-flex align-items-center">
-                <span class="me-3 text-white">[CONFIG]</span>
-                <h5 class="m-0">ACTIVE_YEAR = <span style="color: #4da3ff;">{{ year }}</span></h5>
-            </div>
-            <form action="/set_year" method="POST" class="d-flex align-items-center">
-                <input type="number" name="year" class="form-control me-2 text-center" value="{{ year }}" style="width: 100px;">
-                <button type="submit" class="btn btn-outline-primary btn-sm">UPDATE_YEAR</button>
-            </form>
+<div class="container" style="max-width: 1000px;">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-white pb-3">
+        <h2 class="m-0">
+            > SYSTEM_SYNC <span class="text-white">[{{ year }}]</span> <span style="animation: blink 1s infinite;">_</span>
+        </h2>
+        <div class="d-flex align-items-center gap-3">
+            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                [ CONFIG_MENU ]
+            </button>
+            <span class="badge" style="background:var(--term-gray); color:var(--term-green); font-family: Consolas;">SYS.VER.5.2</span>
         </div>
     </div>
 
-    <div class="row">
+    <div class="flash-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="custom-toast toast-{{ category }}">
+                        <div><strong>[{{ category|upper }}]</strong>: {{ message }}</div>
+                        <button type="button" style="background:none;border:none;color:inherit;font-weight:bold;cursor:pointer;" onclick="this.parentElement.remove()">X</button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12" id="stop-section" style="display:none;">
+            <button onclick="stopProcess()" class="btn btn-stop">⚠️ SYSTEM HALT - STOP PROCESS ⚠️</button>
+        </div>
+
         <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-header">> QUICK_SYNC</div>
-                <div class="card-body text-center d-flex flex-column justify-content-center">
-                    <p class="card-text text-white"> // Sync all lessons for today immediately.</p>
-                    <a href="/sync/today" class="btn btn-success w-100 py-3">EXECUTE_SYNC_TODAY()</a>
+            <div class="card">
+                <div class="card-header">> EXEC_IMMEDIATE</div>
+                <div class="card-body text-center d-flex flex-column justify-content-center p-4">
+                    <p class="card-text text-white mb-4"> // SYNC CURRENT DAY BUFFER</p>
+                    <a href="/sync/today" class="btn btn-success w-100 py-3">RUN SYNC_TODAY.EXE</a>
                 </div>
             </div>
         </div>
 
         <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-header">> WEEK_SYNC</div>
-                <div class="card-body">
+            <div class="card">
+                <div class="card-header">> BATCH_PROCESS (WEEK)</div>
+                <div class="card-body p-4">
                     <form action="/sync/week" method="POST">
-                        <div class="mb-3">
-                            <label class="form-label">TARGET_WEEK_NUM</label>
-                            <input type="number" name="week" class="form-control" placeholder="e.g. 42" required>
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="form-label">START_INDEX</label>
+                                <input type="number" name="start_week" class="form-control" placeholder="10" required>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label">END_INDEX</label>
+                                <input type="number" name="end_week" class="form-control" placeholder="AUTO">
+                            </div>
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">SYNC_WEEK()</button>
+                        <button type="submit" class="btn btn-primary w-100 py-2">INITIATE BATCH</button>
                     </form>
                 </div>
             </div>
         </div>
-    </div>
 
-    <div class="row">
         <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-header">> CUSTOM_RANGE</div>
-                <div class="card-body">
+            <div class="card">
+                <div class="card-header">> CUSTOM_PARAMETERS</div>
+                <div class="card-body p-4">
                     <form action="/sync/custom" method="POST">
-                        <div class="mb-2">
-                            <label class="form-label">START_DATE</label>
+                        <div class="mb-3">
+                            <label class="form-label">T_START</label>
                             <input type="date" name="start" class="form-control" required>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">END_DATE</label>
+                            <label class="form-label">T_END</label>
                             <input type="date" name="end" class="form-control" required>
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">SYNC_RANGE()</button>
+                        <button type="submit" class="btn btn-primary w-100 py-2">EXECUTE RANGE</button>
                     </form>
                 </div>
             </div>
         </div>
 
         <div class="col-md-6">
-            <div class="card h-100" style="border-color: #5c1f1f;">
-                <div class="card-header" style="color: #ff8080;">> DELETE_EVENTS</div>
-                <div class="card-body">
-                    <form action="/clear/weeks" method="POST" onsubmit="return confirm('WARNING: This will permanently delete events. Proceed?');">
+            <div class="card" style="border-color: var(--term-alert);">
+                <div class="card-header" style="color: var(--term-alert); border-color: var(--term-alert);">> PURGE_DATA</div>
+                <div class="card-body p-4">
+                    <form action="/clear/weeks" method="POST" onsubmit="return confirm('WARNING: IRREVERSIBLE DATA LOSS.\nCONFIRM PURGE?');">
                         <div class="row">
                             <div class="col-6 mb-3">
-                                <label class="form-label">START_WEEK</label>
-                                <input type="number" name="start_week" class="form-control" required>
+                                <label class="form-label text-danger">START_INDEX</label>
+                                <input type="number" name="start_week" class="form-control" required style="border-color: var(--term-alert);">
                             </div>
                             <div class="col-6 mb-3">
-                                <label class="form-label">END_WEEK</label>
-                                <input type="number" name="end_week" class="form-control" placeholder="(Optional)">
+                                <label class="form-label text-danger">END_INDEX</label>
+                                <input type="number" name="end_week" class="form-control" style="border-color: var(--term-alert);">
                             </div>
                         </div>
-                        <button type="submit" class="btn btn-danger w-100">PURGE_WEEKS()</button>
+                        <button type="submit" class="btn btn-danger w-100 py-2">EXECUTE PURGE</button>
                     </form>
                 </div>
             </div>
         </div>
     </div>
-    
-    <div class="text-center mt-4 text-white" style="font-size: 0.8rem; opacity: 0.7;">
-        // SYSTEM_STATUS: ONLINE<br>
-        // WAITING_FOR_INPUT...
+
+    <div id="terminal-container">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="text-white small">> SYSTEM_LOGS (<span id="status-indicator" style="color:#666">STANDBY</span>)</span>
+            <button class="btn btn-sm btn-outline-light rounded-0" onclick="clearLogs()">CLR_SCR</button>
+        </div>
+        <div id="terminal">
+            <div class="log-line text-green">System initialized... waiting for input.</div>
+        </div>
     </div>
+    
+    <div class="text-center mt-5 mb-3" style="font-size: 0.8rem; color: #444;">// END OF LINE</div>
 
 </div>
 
-<style>
-    .blink { animation: blinker 1.5s linear infinite; color: #00ff00; }
-    @keyframes blinker { 50% { opacity: 0; } }
-</style>
+<div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">> SYSTEM_CONFIGURATION</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="/update_settings" method="POST">
+            <div class="mb-3">
+                <label class="form-label">SDUI_USER_ID</label>
+                <input type="text" name="sdui_id" class="form-control" value="{{ config.sdui_id }}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">SDUI_AUTH_TOKEN</label>
+                <input type="text" name="sdui_token" class="form-control" value="{{ config.sdui_token }}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">GOOGLE_CAL_ID</label>
+                <input type="text" name="cal_id" class="form-control" value="{{ config.cal_id }}" placeholder="primary">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">TARGET_YEAR</label>
+                <input type="number" name="year" class="form-control" value="{{ config.year }}">
+            </div>
+            <div class="modal-footer px-0 pb-0">
+                <button type="button" class="btn btn-danger" data-bs-dismiss="modal">CANCEL</button>
+                <button type="submit" class="btn btn-success">SAVE CHANGES</button>
+            </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style> @keyframes blink { 50% { opacity: 0; } } </style>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    function stopProcess() {
+        fetch('/stop', {method: 'POST'});
+        const term = document.getElementById('terminal');
+        term.innerHTML += '<div class="log-line" style="color:red; background: #220000;">>>> INTERRUPT SIGNAL SENT <<<</div>';
+    }
+
+    function clearLogs() {
+        fetch('/clear_logs', {method: 'POST'});
+        document.getElementById('terminal').innerHTML = '';
+    }
+
+    setInterval(() => {
+        fetch('/logs')
+            .then(r => r.json())
+            .then(data => {
+                const term = document.getElementById('terminal');
+                if (term.childElementCount !== data.logs.length && data.logs.length > 0) {
+                     const formattedLogs = data.logs.map(l => {
+                        let color = '#ccc';
+                        if(l.includes('Error') || l.includes('Failed')) color = '#ff5555';
+                        else if(l.includes('Uploaded')) color = '#00ff00';
+                        else if(l.includes('Deleted')) color = '#ffaa00';
+                        return `<div class="log-line" style="color:${color}">${l}</div>`;
+                     }).join('');
+                     term.innerHTML = formattedLogs;
+                     term.scrollTop = term.scrollHeight;
+                }
+                const stopBtn = document.getElementById('stop-section');
+                const statusInd = document.getElementById('status-indicator');
+                if (data.running) {
+                    stopBtn.style.display = 'block';
+                    statusInd.innerText = "PROCESSING...";
+                    statusInd.style.color = "#00ff00";
+                    statusInd.style.animation = "blink 1s infinite";
+                } else {
+                    stopBtn.style.display = 'none';
+                    statusInd.innerText = "STANDBY";
+                    statusInd.style.color = "#666";
+                    statusInd.style.animation = "none";
+                }
+            });
+    }, 1000);
+
+    document.querySelectorAll('.custom-toast').forEach(t => {
+        setTimeout(() => { t.style.opacity='0'; setTimeout(()=>t.remove(),500); }, 5000);
+    });
+</script>
 </body>
 </html>
