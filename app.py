@@ -23,6 +23,9 @@ IS_RUNNING = False
 # Global Config Variables
 SDUI_USER_ID = None
 SDUI_AUTH_TOKEN = None
+SDUI_EMAIL = None
+SDUI_PASSWORD = None
+SDUI_SCHOOL_ID = None
 TIMEZONE = None
 GOOGLE_CALENDAR_ID = None
 
@@ -61,12 +64,15 @@ def update_env_file(updates):
         new_lines = []
         for line in lines:
             if line.strip().startswith(f"{key}="):
-                new_lines.append(f"{key}='{value}'\n")
+                # If value is None, we can skip or set empty. Here we set string.
+                val_str = str(value) if value is not None else ""
+                new_lines.append(f"{key}='{val_str}'\n")
                 found = True
             else:
                 new_lines.append(line)
         if not found:
-            new_lines.append(f"{key}='{value}'\n")
+            val_str = str(value) if value is not None else ""
+            new_lines.append(f"{key}='{val_str}'\n")
         lines = new_lines
 
     with open('.env', 'w') as f:
@@ -75,10 +81,17 @@ def update_env_file(updates):
 def load_config():
     """Reloads global config variables from .env"""
     global SDUI_USER_ID, SDUI_AUTH_TOKEN, TIMEZONE, GOOGLE_CALENDAR_ID
+    global SDUI_EMAIL, SDUI_PASSWORD, SDUI_SCHOOL_ID
+    
     SDUI_USER_ID = read_env_key('SDUI_USER_ID')
     SDUI_AUTH_TOKEN = read_env_key('SDUI_AUTH_TOKEN')
     TIMEZONE = read_env_key('TIMEZONE', 'Europe/Berlin')
     GOOGLE_CALENDAR_ID = read_env_key('GOOGLE_CALENDAR_ID', 'primary')
+    
+    # New Auth Globals
+    SDUI_EMAIL = read_env_key('SDUI_EMAIL')
+    SDUI_PASSWORD = read_env_key('SDUI_PASSWORD')
+    SDUI_SCHOOL_ID = read_env_key('SDUI_SCHOOL_ID')
 
 # Initialize Config
 load_config()
@@ -111,9 +124,68 @@ def get_calendar_service():
             
     return build('calendar', 'v3', credentials=creds)
 
+def auto_login():
+    """Exchanges Email/Password/SchoolID for a Bearer Token."""
+    global SDUI_AUTH_TOKEN, SDUI_USER_ID
+    
+    # Reload config just in case
+    email = read_env_key('SDUI_EMAIL')
+    password = read_env_key('SDUI_PASSWORD')
+    school_id = read_env_key('SDUI_SCHOOL_ID')
+
+    if not email or not password or not school_id:
+        log_msg("Auto-login skipped: Missing EMAIL, PASSWORD, or SCHOOL_ID.")
+        return None
+
+    url = "https://api.sdui.app/v1/auth/login"
+    
+    payload = {
+        "identification": email,
+        "password": password,
+        "school_id": school_id # Sent as string/UUID
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    try:
+        log_msg(f"Attempting auto-login for {email}...")
+        resp = requests.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        
+        data = resp.json()
+        token = data.get('token')
+        user_id = data.get('user_id')
+        
+        if token:
+            log_msg("Auto-login SUCCESS! Token refreshed.")
+            SDUI_AUTH_TOKEN = token
+            if user_id: SDUI_USER_ID = str(user_id)
+            
+            # Save to .env so we persist the session
+            update_env_file({
+                'SDUI_AUTH_TOKEN': token,
+                'SDUI_USER_ID': str(user_id)
+            })
+            return token
+            
+    except Exception as e:
+        log_msg(f"Auto-login failed: {e}")
+        try: log_msg(f"Response: {resp.text}")
+        except: pass
+    
+    return None
+
 def get_sdui_data(start_date, end_date):
+    # 1. Check if we have a token, if not try login
+    if not SDUI_AUTH_TOKEN:
+        log_msg("Token missing. Attempting login...")
+        auto_login()
+
     if not SDUI_AUTH_TOKEN or not SDUI_USER_ID: 
-        log_msg("Error: Missing .env variables.")
+        log_msg("Error: Authentication missing. Check Settings.")
         return None
     
     log_msg(f"Fetching SDUI: {start_date} -> {end_date}")
@@ -126,8 +198,24 @@ def get_sdui_data(start_date, end_date):
         r = requests.get(url, headers=headers)
         r.raise_for_status()
         return r.json()
-    except Exception as e: 
+    except requests.exceptions.HTTPError as e:
+        # 2. Handle Token Expiry (401)
+        if e.response.status_code == 401:
+            log_msg("Token expired (401). Refreshing...")
+            if auto_login():
+                # Retry with new token
+                headers['Authorization'] = f'Bearer {SDUI_AUTH_TOKEN}'
+                try:
+                    r = requests.get(url, headers=headers)
+                    r.raise_for_status()
+                    return r.json()
+                except Exception as ex:
+                    log_msg(f"Retry failed: {ex}")
+        
         log_msg(f"Network Error: {e}")
+        return None
+    except Exception as e:
+        log_msg(f"Error: {e}")
         return None
 
 def process_sdui_data(sdui_data):
@@ -192,7 +280,7 @@ def worker_sync(start, end):
     data = get_sdui_data(start, end)
     
     if not data:
-        log_msg("Failed to get data.")
+        log_msg("Data fetch failed.")
         IS_RUNNING = False
         return
 
@@ -204,7 +292,7 @@ def worker_sync(start, end):
 
     service = get_calendar_service()
     if not service:
-        log_msg("Auth failed.")
+        log_msg("Google Auth failed.")
         IS_RUNNING = False
         return
 
@@ -226,7 +314,6 @@ def worker_sync(start, end):
             'colorId': event['colorId']
         }
 
-        # RETRY LOOP FOR RATE LIMITS
         max_retries = 8
         for attempt in range(max_retries):
             if ABORT_FLAG: break
@@ -303,22 +390,25 @@ def worker_clear(start, end):
 @app.route('/')
 def index():
     if 'year' not in session:
-        # Load year from ENV if available, else default to current
         env_year = read_env_key('SYNC_YEAR')
         session['year'] = int(env_year) if env_year else datetime.now().year
 
+    # Prepare config for modal
     config = {
         'sdui_id': SDUI_USER_ID or '',
         'sdui_token': SDUI_AUTH_TOKEN or '',
         'cal_id': GOOGLE_CALENDAR_ID or '',
-        'year': session['year']
+        'year': session['year'],
+        'sdui_email': SDUI_EMAIL or '',
+        'sdui_password': SDUI_PASSWORD or '',
+        'sdui_school_id': SDUI_SCHOOL_ID or ''
     }
     return render_template('index.html', year=session['year'], config=config)
 
 @app.route('/update_settings', methods=['POST'])
 def update_settings():
     try:
-        # Update Session
+        # Update Session Year
         year_input = request.form.get('year')
         if year_input and year_input.isdigit():
             session['year'] = int(year_input)
@@ -327,10 +417,14 @@ def update_settings():
             'SDUI_USER_ID': request.form.get('sdui_id').strip(),
             'SDUI_AUTH_TOKEN': request.form.get('sdui_token').strip(),
             'GOOGLE_CALENDAR_ID': request.form.get('cal_id').strip() or 'primary',
-            'SYNC_YEAR': year_input
+            'SYNC_YEAR': year_input,
+            # New Auth Fields
+            'SDUI_EMAIL': request.form.get('sdui_email').strip(),
+            'SDUI_PASSWORD': request.form.get('sdui_password').strip(),
+            'SDUI_SCHOOL_ID': request.form.get('sdui_school_id').strip()
         }
         update_env_file(new_updates)
-        load_config() # Refresh runtime globals
+        load_config() 
         flash("Settings Saved & Reloaded", "success")
     except Exception as e:
         flash(f"Error saving settings: {e}", "danger")
@@ -365,7 +459,7 @@ def set_year():
 @app.route('/sync/today')
 def sync_today():
     if IS_RUNNING:
-        flash("Process already running! Stop it first.", "danger")
+        flash("Process already running!", "danger")
         return redirect(url_for('index'))
     tz = pytz.timezone(TIMEZONE)
     today = datetime.now(tz).date()
