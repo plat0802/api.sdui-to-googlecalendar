@@ -1,5 +1,5 @@
 .env
-token.json
-credentials.json
 __pycache__/
-*.pyc 
+*.pyc
+# Ignore the entire auth folder (contains secrets)
+auth/

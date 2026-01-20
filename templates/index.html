@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SYSTEM_SYNC_V6</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --term-bg: #000000;
+            --term-green: #00ff00;
+            --term-white: #ffffff;
+            --term-gray: #333333;
+            --term-border: #00ff00; 
+            --term-alert: #ff0000;
+        }
+
+        body {
+            background-color: var(--term-bg);
+            color: var(--term-green);
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            padding-top: 30px;
+            padding-bottom: 50px;
+            letter-spacing: 0.5px;
+        }
+        
+        h1, h2, h3, h4, h5, h6 { color: var(--term-green); font-weight: bold; text-transform: uppercase; }
+        .text-white { color: var(--term-white) !important; }
+        .text-green { color: var(--term-green) !important; }
+
+        .card {
+            background-color: var(--term-bg);
+            border: 2px solid var(--term-gray);
+            border-radius: 0 !important;
+            box-shadow: none;
+            height: 100%;
+        }
+        .card:hover { border-color: var(--term-green); }
+
+        .card-header {
+            background-color: var(--term-gray);
+            border-bottom: 2px solid var(--term-gray);
+            border-radius: 0 !important;
+            color: var(--term-white); 
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        /* INPUTS */
+        .form-label { color: var(--term-green) !important; font-weight: bold; text-transform: uppercase; font-size: 0.8rem; }
+        .form-control {
+            background-color: #111;
+            border: 1px solid var(--term-white);
+            border-radius: 0 !important;
+            color: var(--term-white);
+            font-family: 'Consolas', monospace;
+            font-weight: bold;
+        }
+        .form-control:focus { background-color: #000; border-color: var(--term-green); color: var(--term-white); box-shadow: 0 0 0 2px rgba(0, 255, 0, 0.2); }
+        .form-control::placeholder { color: #666; font-style: italic; }
+
+        /* BUTTONS */
+        .btn { border-radius: 0 !important; font-family: 'Consolas', monospace; font-weight: bold; text-transform: uppercase; border: 2px solid transparent; }
+        .btn-primary { background-color: transparent; border: 2px solid var(--term-green); color: var(--term-green); }
+        .btn-primary:hover { background-color: var(--term-green); color: black; }
+        .btn-success { background-color: var(--term-green); color: black; border: 2px solid var(--term-green); }
+        .btn-success:hover { background-color: #00cc00; border-color: #00cc00; }
+        .btn-danger { background-color: transparent; border: 2px solid var(--term-alert); color: var(--term-alert); }
+        .btn-danger:hover { background-color: var(--term-alert); color: black; }
+        
+        .btn-stop {
+            background-color: var(--term-alert); color: white; font-weight: bold; border: 4px double white;
+            width: 100%; padding: 15px; font-size: 1.2rem; animation: blinkRed 1s infinite;
+        }
+        @keyframes blinkRed { 50% { opacity: 0.7; } }
+
+        /* MODAL */
+        .modal-content {
+            background-color: #000;
+            border: 2px solid var(--term-white);
+            border-radius: 0;
+            color: var(--term-green);
+            font-family: 'Consolas', monospace;
+        }
+        .modal-header { border-bottom: 1px solid var(--term-gray); }
+        .modal-footer { border-top: 1px solid var(--term-gray); }
+        .btn-close { filter: invert(1); opacity: 0.8; }
+
+        /* TERMINAL & TOASTS */
+        #terminal-container { margin-top: 30px; }
+        #terminal {
+            background-color: #000; border: 2px solid var(--term-gray); padding: 15px; height: 350px; overflow-y: auto; color: #ddd; font-size: 0.9rem; line-height: 1.3;
+        }
+        .log-line { margin: 0; white-space: pre-wrap; }
+        .flash-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+        .custom-toast {
+            background-color: #000; color: #fff; border: 2px solid #fff; padding: 15px; width: 350px;
+            display: flex; justify-content: space-between; font-family: 'Consolas', monospace;
+            box-shadow: 4px 4px 0px rgba(255,255,255,0.2); animation: slideIn 0.3s forwards;
+        }
+        .toast-success { border-color: var(--term-green); color: var(--term-green); }
+        .toast-danger { border-color: var(--term-alert); color: var(--term-alert); }
+        .toast-info { border-color: #00ffff; color: #00ffff; }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        ::-webkit-scrollbar { width: 12px; }
+        ::-webkit-scrollbar-track { background: #000; border-left: 1px solid #333; }
+        ::-webkit-scrollbar-thumb { background: #444; border: 1px solid #000; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--term-green); }
+    </style>
+</head>
+<body>
+
+<div class="container" style="max-width: 1000px;">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-white pb-3">
+        <h2 class="m-0">
+            > SYSTEM_SYNC <span class="text-white">[{{ year }}]</span> <span style="animation: blink 1s infinite;">_</span>
+        </h2>
+        <div class="d-flex align-items-center gap-3">
+            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                [ CONFIG_MENU ]
+            </button>
+            <span class="badge" style="background:var(--term-gray); color:var(--term-green); font-family: Consolas;">SYS.VER.6.0</span>
+        </div>
+    </div>
+
+    <div class="flash-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="custom-toast toast-{{ category }}">
+                        <div><strong>[{{ category|upper }}]</strong>: {{ message }}</div>
+                        <button type="button" style="background:none;border:none;color:inherit;font-weight:bold;cursor:pointer;" onclick="this.parentElement.remove()">X</button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12" id="stop-section" style="display:none;">
+            <button onclick="stopProcess()" class="btn btn-stop">⚠️ SYSTEM HALT - STOP PROCESS ⚠️</button>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">> EXEC_IMMEDIATE</div>
+                <div class="card-body text-center d-flex flex-column justify-content-center p-4">
+                    <p class="card-text text-white mb-4"> // SYNC CURRENT DAY BUFFER</p>
+                    <a href="/sync/today" class="btn btn-success w-100 py-3">RUN SYNC_TODAY.EXE</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">> BATCH_PROCESS (WEEK)</div>
+                <div class="card-body p-4">
+                    <form action="/sync/week" method="POST">
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="form-label">START_INDEX</label>
+                                <input type="number" name="start_week" class="form-control" placeholder="10" required>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label">END_INDEX</label>
+                                <input type="number" name="end_week" class="form-control" placeholder="AUTO">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 py-2">INITIATE BATCH</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">> CUSTOM_PARAMETERS</div>
+                <div class="card-body p-4">
+                    <form action="/sync/custom" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">T_START</label>
+                            <input type="date" name="start" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">T_END</label>
+                            <input type="date" name="end" class="form-control" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 py-2">EXECUTE RANGE</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card" style="border-color: var(--term-alert);">
+                <div class="card-header" style="color: var(--term-alert); border-color: var(--term-alert);">> PURGE_DATA</div>
+                <div class="card-body p-4">
+                    <form action="/clear/weeks" method="POST" onsubmit="return confirm('WARNING: IRREVERSIBLE DATA LOSS.\nCONFIRM PURGE?');">
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="form-label text-danger">START_INDEX</label>
+                                <input type="number" name="start_week" class="form-control" required style="border-color: var(--term-alert);">
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label text-danger">END_INDEX</label>
+                                <input type="number" name="end_week" class="form-control" style="border-color: var(--term-alert);">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-danger w-100 py-2">EXECUTE PURGE</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="terminal-container">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="text-white small">> SYSTEM_LOGS (<span id="status-indicator" style="color:#666">STANDBY</span>)</span>
+            <button class="btn btn-sm btn-outline-light rounded-0" onclick="clearLogs()">CLR_SCR</button>
+        </div>
+        <div id="terminal">
+            <div class="log-line text-green">System initialized... waiting for input.</div>
+        </div>
+    </div>
+    
+    <div class="text-center mt-5 mb-3" style="font-size: 0.8rem; color: #444;">// END OF LINE</div>
+
+</div>
+
+<div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">> SYSTEM_CONFIGURATION</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="/update_settings" method="POST">
+            
+            <h6 class="text-white mb-3">-- AUTHENTICATION (AUTO) --</h6>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">SDUI_EMAIL</label>
+                    <input type="email" name="sdui_email" class="form-control" value="{{ config.sdui_email }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">SDUI_PASSWORD</label>
+                    <input type="password" name="sdui_password" class="form-control" value="{{ config.sdui_password }}">
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">SDUI_SCHOOL_ID (UUID)</label>
+                <input type="text" name="sdui_school_id" class="form-control" value="{{ config.sdui_school_id }}" placeholder="e.g. 78c88682-...">
+            </div>
+
+            <h6 class="text-white mt-4 mb-3">-- MANUAL OVERRIDE (OPTIONAL) --</h6>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">SDUI_USER_ID</label>
+                    <input type="text" name="sdui_id" class="form-control" value="{{ config.sdui_id }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">SDUI_AUTH_TOKEN</label>
+                    <input type="text" name="sdui_token" class="form-control" value="{{ config.sdui_token }}">
+                </div>
+            </div>
+
+            <h6 class="text-white mt-4 mb-3">-- CALENDAR & YEAR --</h6>
+            <div class="row">
+                <div class="col-md-8 mb-3">
+                    <label class="form-label">GOOGLE_CAL_ID</label>
+                    <input type="text" name="cal_id" class="form-control" value="{{ config.cal_id }}" placeholder="primary">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">TARGET_YEAR</label>
+                    <input type="number" name="year" class="form-control" value="{{ config.year }}">
+                </div>
+            </div>
+
+            <div class="modal-footer px-0 pb-0">
+                <button type="button" class="btn btn-danger" data-bs-dismiss="modal">CANCEL</button>
+                <button type="submit" class="btn btn-success">SAVE CHANGES</button>
+            </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style> @keyframes blink { 50% { opacity: 0; } } </style>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    function stopProcess() {
+        fetch('/stop', {method: 'POST'});
+        const term = document.getElementById('terminal');
+        term.innerHTML += '<div class="log-line" style="color:red; background: #220000;">>>> INTERRUPT SIGNAL SENT <<<</div>';
+    }
+
+    function clearLogs() {
+        fetch('/clear_logs', {method: 'POST'});
+        document.getElementById('terminal').innerHTML = '';
+    }
+
+    setInterval(() => {
+        fetch('/logs')
+            .then(r => r.json())
+            .then(data => {
+                const term = document.getElementById('terminal');
+                if (term.childElementCount !== data.logs.length && data.logs.length > 0) {
+                     const formattedLogs = data.logs.map(l => {
+                        let color = '#ccc';
+                        if(l.includes('Error') || l.includes('Failed')) color = '#ff5555';
+                        else if(l.includes('Uploaded')) color = '#00ff00';
+                        else if(l.includes('Deleted')) color = '#ffaa00';
+                        return `<div class="log-line" style="color:${color}">${l}</div>`;
+                     }).join('');
+                     term.innerHTML = formattedLogs;
+                     term.scrollTop = term.scrollHeight;
+                }
+                const stopBtn = document.getElementById('stop-section');
+                const statusInd = document.getElementById('status-indicator');
+                if (data.running) {
+                    stopBtn.style.display = 'block';
+                    statusInd.innerText = "PROCESSING...";
+                    statusInd.style.color = "#00ff00";
+                    statusInd.style.animation = "blink 1s infinite";
+                } else {
+                    stopBtn.style.display = 'none';
+                    statusInd.innerText = "STANDBY";
+                    statusInd.style.color = "#666";
+                    statusInd.style.animation = "none";
+                }
+            });
+    }, 1000);
+
+    document.querySelectorAll('.custom-toast').forEach(t => {
+        setTimeout(() => { t.style.opacity='0'; setTimeout(()=>t.remove(),500); }, 5000);
+    });
+</script>
+</body>
+</html>
