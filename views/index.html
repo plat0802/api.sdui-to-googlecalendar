@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYSTEM_SYNC_V6</title>
+    <title>SYSTEM_SYNC_JS</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         :root {
@@ -113,27 +113,14 @@
 <div class="container" style="max-width: 1000px;">
     <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-white pb-3">
         <h2 class="m-0">
-            > SYSTEM_SYNC <span class="text-white">[{{ year }}]</span> <span style="animation: blink 1s infinite;">_</span>
+            > SYSTEM_SYNC <span class="text-white">[NODE.JS]</span> <span style="animation: blink 1s infinite;">_</span>
         </h2>
         <div class="d-flex align-items-center gap-3">
-            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#settingsModal" onclick="fetchConfig()">
                 [ CONFIG_MENU ]
             </button>
-            <span class="badge" style="background:var(--term-gray); color:var(--term-green); font-family: Consolas;">SYS.VER.6.0</span>
+            <span class="badge" style="background:var(--term-gray); color:var(--term-green); font-family: Consolas;">SYS.VER.7.0.JS</span>
         </div>
-    </div>
-
-    <div class="flash-container">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="custom-toast toast-{{ category }}">
-                        <div><strong>[{{ category|upper }}]</strong>: {{ message }}</div>
-                        <button type="button" style="background:none;border:none;color:inherit;font-weight:bold;cursor:pointer;" onclick="this.parentElement.remove()">X</button>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
     </div>
 
     <div class="row g-4">
@@ -237,43 +224,27 @@
       <div class="modal-body">
         <form action="/update_settings" method="POST">
             
-            <h6 class="text-white mb-3">-- AUTHENTICATION (AUTO) --</h6>
-            <div class="row">
-                <div class="col-md-6 mb-3">
-                    <label class="form-label">SDUI_EMAIL</label>
-                    <input type="email" name="sdui_email" class="form-control" value="{{ config.sdui_email }}">
-                </div>
-                <div class="col-md-6 mb-3">
-                    <label class="form-label">SDUI_PASSWORD</label>
-                    <input type="password" name="sdui_password" class="form-control" value="{{ config.sdui_password }}">
-                </div>
-            </div>
+            <h6 class="text-white mb-3">-- AUTHENTICATION (BEARER TOKEN) --</h6>
             <div class="mb-3">
-                <label class="form-label">SDUI_SCHOOL_ID (UUID)</label>
-                <input type="text" name="sdui_school_id" class="form-control" value="{{ config.sdui_school_id }}" placeholder="e.g. 78c88682-...">
+                <label class="form-label">SDUI_AUTH_TOKEN</label>
+                <input type="text" id="cfg_token" name="sdui_token" class="form-control" placeholder="eyJ0eXAiOiJKV1Qi...">
+                <small class="text-muted d-block mt-1">// Paste your JWT token here. Do not include 'Bearer ' prefix.</small>
             </div>
 
-            <h6 class="text-white mt-4 mb-3">-- MANUAL OVERRIDE (OPTIONAL) --</h6>
-            <div class="row">
-                <div class="col-md-6 mb-3">
-                    <label class="form-label">SDUI_USER_ID</label>
-                    <input type="text" name="sdui_id" class="form-control" value="{{ config.sdui_id }}">
-                </div>
-                <div class="col-md-6 mb-3">
-                    <label class="form-label">SDUI_AUTH_TOKEN</label>
-                    <input type="text" name="sdui_token" class="form-control" value="{{ config.sdui_token }}">
-                </div>
+            <div class="mb-3">
+                <label class="form-label">SDUI_USER_ID</label>
+                <input type="text" id="cfg_uid" name="sdui_id" class="form-control" placeholder="e.g. 557035">
             </div>
 
             <h6 class="text-white mt-4 mb-3">-- CALENDAR & YEAR --</h6>
             <div class="row">
                 <div class="col-md-8 mb-3">
                     <label class="form-label">GOOGLE_CAL_ID</label>
-                    <input type="text" name="cal_id" class="form-control" value="{{ config.cal_id }}" placeholder="primary">
+                    <input type="text" id="cfg_cal" name="cal_id" class="form-control" placeholder="primary">
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label">TARGET_YEAR</label>
-                    <input type="number" name="year" class="form-control" value="{{ config.year }}">
+                    <input type="number" id="cfg_year" name="year" class="form-control">
                 </div>
             </div>
 
@@ -291,6 +262,18 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+    // Fetch current server config to populate the modal fields
+    function fetchConfig() {
+        fetch('/api/config')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('cfg_token').value = data.SDUI_AUTH_TOKEN || '';
+                document.getElementById('cfg_uid').value = data.SDUI_USER_ID || '';
+                document.getElementById('cfg_cal').value = data.GOOGLE_CALENDAR_ID || '';
+                document.getElementById('cfg_year').value = data.SYNC_YEAR || new Date().getFullYear();
+            });
+    }
+
     function stopProcess() {
         fetch('/stop', {method: 'POST'});
         const term = document.getElementById('terminal');
@@ -302,11 +285,13 @@
         document.getElementById('terminal').innerHTML = '';
     }
 
+    // Polling for logs
     setInterval(() => {
         fetch('/logs')
             .then(r => r.json())
             .then(data => {
                 const term = document.getElementById('terminal');
+                // Only scroll if new logs appeared
                 if (term.childElementCount !== data.logs.length && data.logs.length > 0) {
                      const formattedLogs = data.logs.map(l => {
                         let color = '#ccc';
@@ -318,6 +303,7 @@
                      term.innerHTML = formattedLogs;
                      term.scrollTop = term.scrollHeight;
                 }
+                
                 const stopBtn = document.getElementById('stop-section');
                 const statusInd = document.getElementById('status-indicator');
                 if (data.running) {
@@ -331,12 +317,9 @@
                     statusInd.style.color = "#666";
                     statusInd.style.animation = "none";
                 }
-            });
+            })
+            .catch(() => {}); // Ignore fetch errors if server is down
     }, 1000);
-
-    document.querySelectorAll('.custom-toast').forEach(t => {
-        setTimeout(() => { t.style.opacity='0'; setTimeout(()=>t.remove(),500); }, 5000);
-    });
 </script>
 </body>
 </html>
